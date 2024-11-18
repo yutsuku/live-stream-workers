@@ -16,12 +16,30 @@ ffmpeg="ffmpeg"
 SCRIPTNAME=`basename $0`
 PIDFILE=${SCRIPTNAME}.${CHANNEL_ID}.pid
 
+# do not allow script with same pid to run more than a day
+MAX_UPTIME_GRACEFUL=86400
+MAX_UPTIME_FORCE=90000
+
 if [ -f ${PIDFILE} ]; then
     #verify if the process is actually still running under this pid
     OLDPID=`cat ${PIDFILE}`
 
     if [ -n "$(ps -p $OLDPID -o pid=)" ]; then
-        exit 255
+      if [ $MAX_UPTIME_GRACEFUL -gt 0 ]; then
+        uptime_script=$(stat --format='%Y' /proc/$OLDPID)
+        uptime_now=$(date +%s)
+        uptime_difference=$(( ($uptime_now - $uptime_script) ))
+
+        if [ $uptime_difference -gt $MAX_UPTIME_FORCE ]; then
+          kill -9 $OLDPID
+        fi
+
+        if [ $uptime_difference -gt $MAX_UPTIME_GRACEFUL ]; then
+          kill $OLDPID
+        fi
+      fi
+
+      exit 255
     fi
 fi
 
@@ -33,12 +51,16 @@ cd "$ARCHIVE_DIRECTORY"
 
 echo '========================================================================='
 date
+date --iso-8601=seconds
+echo 'yt-dlp version:'
 $ytdlp --version
+echo 'ffmpeg version:'
 $ffmpeg -version
 echo "running as: " $(id)
 echo "pwd: " $(pwd)
 echo "stat: " $(stat .)
 echo '========================================================================='
+echo
 
 first_char="$(printf '%c' "$CHANNEL_ID")"
 if [ "$first_char" = @ ]; then
@@ -62,8 +84,8 @@ $ytdlp --ignore-config \
 --write-description \
 --write-info-json \
 --write-thumbnail \
---abort-on-unavailable-fragment \
---downloader-args ffmpeg:'-loglevel panic' \
+--live-from-start \
+--downloader-args ffmpeg:'-hide_banner -loglevel error' \
 --output $output_template \
 $STREAM_URL
 
